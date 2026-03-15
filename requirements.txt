@@ -1,0 +1,5 @@
+# requirements.txt  (goes in each GitHub worker repo root)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+feedparser>=6.0.0
