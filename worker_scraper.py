@@ -740,10 +740,10 @@ def send_to_oracle(jobs: list):
         "jobs":        jobs,
     }
     try:
-        r = requests.post(
-            ORACLE_URL, json=payload, timeout=180,
-            headers={"Content-Type": "application/json"}
-        )
+        headers = {"Content-Type": "application/json"}
+        if "ngrok" in ORACLE_URL.lower():
+            headers["Ngrok-Skip-Browser-Warning"] = "true"  # skip ngrok free-tier interstitial
+        r = requests.post(ORACLE_URL, json=payload, timeout=180, headers=headers)
         if r.status_code == 200:
             log.info(f"📤 Oracle: {r.json()}")
         else:
