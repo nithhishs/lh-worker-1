@@ -57,8 +57,9 @@ ORACLE_URL   = os.environ["ORACLE_URL"]
 SECRET       = os.environ["RECEIVER_SECRET"]
 KEYWORD      = os.environ.get("KEYWORD", "Software Developer")
 LOCATION     = os.environ.get("LOCATION", "India")
-STRATEGY     = os.environ.get("STRATEGY", "all")
-JOBS_PER_RUN = int(os.environ.get("JOBS_PER_RUN", "100"))
+STRATEGY     = os.environ.get("STRATEGY", "single")  # "single" = fast, one keyword+location; "all" = full explosion
+JOBS_PER_RUN = int(os.environ.get("JOBS_PER_RUN", "20"))
+SKIP_COMPANY_DETAILS = os.environ.get("SKIP_COMPANY_DETAILS", "1") == "1"  # skip company page fetch to finish faster
 GITHUB_USER  = os.environ.get("GITHUB_USER", "unknown")
 
 USER_AGENTS = [
@@ -405,8 +406,8 @@ def extract_full_job_details(session, url: str) -> dict:
         if pimg:
             job["poster_image_url"] = pimg.get("src") or pimg.get("data-delayed-url")
 
-    # ── Now fetch Company Details Page ───────────────────────────────────────
-    if job.get("company_linkedin_url"):
+    # ── Now fetch Company Details Page (skip if SKIP_COMPANY_DETAILS=1 to finish within timeout) ──
+    if not SKIP_COMPANY_DETAILS and job.get("company_linkedin_url"):
         job = fetch_company_details(session, job)
 
     return job
@@ -650,8 +651,39 @@ def scrape_sitemap_urls(session, limit=300) -> list:
 # ════════════════════════════════════════════════════════════════════════════════
 # MASTER RUNNER — Collect URLs then fetch FULL details for each
 # ════════════════════════════════════════════════════════════════════════════════
+def run_single_strategy(session) -> list:
+    """Fast path: only KEYWORD + LOCATION (from workflow inputs). Fewer requests, finishes within timeout."""
+    log.info(f"PHASE 1 (single): RSS + search for '{KEYWORD}' in '{LOCATION}'")
+    rss_urls = get_urls_from_rss(KEYWORD, LOCATION)
+    time.sleep(random.uniform(0.5, 1.5))
+    search_urls = get_urls_from_search(session, KEYWORD, LOCATION)
+    all_urls = list(set(rss_urls + search_urls))
+    random.shuffle(all_urls)
+    all_urls = all_urls[:JOBS_PER_RUN]
+    log.info(f"Collected {len(all_urls)} URLs (cap {JOBS_PER_RUN})")
+
+    log.info("PHASE 2: Fetching job details")
+    jobs = []
+    for i, url in enumerate(all_urls, 1):
+        log.info(f"[{i}/{len(all_urls)}] {url}")
+        job = extract_full_job_details(session, url)
+        if job.get("job_title"):
+            jobs.append(job)
+        else:
+            log.warning("  Could not extract title, skipping")
+    return jobs
+
+
 def run_all_strategies() -> list:
     session = make_session()
+
+    if STRATEGY == "single":
+        log.info("━" * 50)
+        log.info("PHASE 1: COLLECTING JOB URLs (single keyword/location)")
+        log.info("━" * 50)
+        jobs = run_single_strategy(session)
+        log.info(f"COMPLETE: {len(jobs)} jobs")
+        return jobs
 
     # Step 1: Collect job URLs from all 3 strategies
     log.info("━"*50)
