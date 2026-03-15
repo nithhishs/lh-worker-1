@@ -1,0 +1,74 @@
+# .github/workflows/scrape.yml
+# ─────────────────────────────────────────────────────────────────
+# This workflow is triggered by your Oracle orchestrator via API.
+# Each run gets a FRESH Microsoft Azure IP → LinkedIn can't ban it.
+#
+# SETUP for each GitHub account:
+#   1. Create a new PUBLIC repo named e.g. "lh-worker-1"
+#   2. Add this file at: .github/workflows/scrape.yml
+#   3. Add worker_scraper.py to root of repo
+#   4. Add requirements.txt to root of repo
+#   5. Add these SECRETS in repo Settings → Secrets → Actions:
+#        ORACLE_URL       = http://YOUR_ORACLE_IP:8765/receive
+#        RECEIVER_SECRET  = your_shared_secret
+# ─────────────────────────────────────────────────────────────────
+
+name: LinkedIn Job Scraper
+
+on:
+  # Triggered by Oracle orchestrator via GitHub API
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: "Job keyword to search"
+        required: true
+        default: "Software Developer"
+      location:
+        description: "Location to search"
+        required: true
+        default: "India"
+      date_filter:
+        description: "Date filter (r86400=24h, r604800=1week)"
+        required: false
+        default: "r86400"
+      jobs_per_run:
+        description: "Max jobs to collect"
+        required: false
+        default: "50"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml feedparser
+
+      - name: Run scraper
+        env:
+          ORACLE_URL:       ${{ secrets.ORACLE_URL }}
+          RECEIVER_SECRET:  ${{ secrets.RECEIVER_SECRET }}
+          KEYWORD:          ${{ github.event.inputs.keyword }}
+          LOCATION:         ${{ github.event.inputs.location }}
+          DATE_FILTER:      ${{ github.event.inputs.date_filter }}
+          JOBS_PER_RUN:     ${{ github.event.inputs.jobs_per_run }}
+          GITHUB_USER:      ${{ github.repository_owner }}
+        run: python worker_scraper.py
+
+      - name: Upload fallback if Oracle unreachable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobs-fallback-${{ github.run_id }}
+          path: jobs_fallback.json
+          if-no-files-found: ignore
+          retention-days: 1
