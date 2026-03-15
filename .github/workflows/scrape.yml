@@ -32,14 +32,14 @@ on:
         required: false
         default: "r86400"
       jobs_per_run:
-        description: "Max jobs to collect"
+        description: "Max jobs to collect (use 15-25 to finish within timeout)"
         required: false
-        default: "50"
+        default: "20"
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -55,13 +55,15 @@ jobs:
 
       - name: Run scraper
         env:
-          ORACLE_URL:       ${{ secrets.ORACLE_URL }}
-          RECEIVER_SECRET:  ${{ secrets.RECEIVER_SECRET }}
-          KEYWORD:          ${{ github.event.inputs.keyword }}
-          LOCATION:         ${{ github.event.inputs.location }}
-          DATE_FILTER:      ${{ github.event.inputs.date_filter }}
-          JOBS_PER_RUN:     ${{ github.event.inputs.jobs_per_run }}
-          GITHUB_USER:      ${{ github.repository_owner }}
+          ORACLE_URL:             ${{ secrets.ORACLE_URL }}
+          RECEIVER_SECRET:        ${{ secrets.RECEIVER_SECRET }}
+          KEYWORD:                ${{ github.event.inputs.keyword }}
+          LOCATION:               ${{ github.event.inputs.location }}
+          DATE_FILTER:            ${{ github.event.inputs.date_filter }}
+          JOBS_PER_RUN:           ${{ github.event.inputs.jobs_per_run }}
+          STRATEGY:               "single"
+          SKIP_COMPANY_DETAILS:   "1"
+          GITHUB_USER:            ${{ github.repository_owner }}
         run: python worker_scraper.py
 
       - name: Upload fallback if Oracle unreachable
