@@ -1,3 +1,5 @@
+# GitHub Actions - 250 batches, 20 parallel per batch
+# Place this at: .github/workflows/test-my-site.yml
 # .github/workflows/scrape.yml
 # ─────────────────────────────────────────────────────────────────
 # This workflow is triggered by your Oracle orchestrator via API.
@@ -35,15 +37,62 @@ on:
         description: "Max jobs to collect (use 15-25 to finish within timeout)"
         required: false
         default: "20"
+      total_batches:
+        description: "Total matrix shards to run (e.g. 250)"
+        required: false
+        default: "250"
+      max_parallel:
+        description: "How many shards run at once (e.g. 20)"
+        required: false
+        default: "20"
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - name: Build shard matrix
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - << 'PY'
+          import json
+          import os
+
+          total = int(os.environ.get("TOTAL_BATCHES", "250"))
+          if total < 1:
+              total = 1
+          if total > 500:
+              total = 500
+
+          matrix = {"batch": list(range(1, total + 1))}
+          output_path = os.environ["GITHUB_OUTPUT"]
+          with open(output_path, "a", encoding="utf-8") as f:
+              f.write("matrix=" + json.dumps(matrix) + "\n")
+          PY
+        env:
+          TOTAL_BATCHES: ${{ github.event.inputs.total_batches || '250' }}
+
   scrape:
+    needs: prepare-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(github.event.inputs.max_parallel || '20') }}
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show shard info
+        run: |
+          echo "batch=${{ matrix.batch }}"
+          echo "run_id=${{ github.run_id }}"
+          echo "runner=${{ runner.name }}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -64,13 +113,14 @@ jobs:
           STRATEGY:               "single"
           SKIP_COMPANY_DETAILS:   "1"
           GITHUB_USER:            ${{ github.repository_owner }}
+          BATCH_ID:               ${{ matrix.batch }}
         run: python worker_scraper.py
 
       - name: Upload fallback if Oracle unreachable
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jobs-fallback-${{ github.run_id }}
+          name: jobs-fallback-${{ github.run_id }}-${{ matrix.batch }}
           path: jobs_fallback.json
           if-no-files-found: ignore
           retention-days: 1
